@@ -1,0 +1,50 @@
+<?xml version='1.1' encoding='UTF-8'?>
+<jenkins.advancedqueue.PriorityConfiguration plugin="PrioritySorter@3.6.0">
+  <jobGroups class="linked-list">
+    <jenkins.advancedqueue.JobGroup>
+      <id>0</id>
+      <priority>1</priority>
+      <jobGroupStrategy class="jenkins.advancedqueue.jobinclusion.strategy.ViewBasedJobInclusionStrategy">
+        <viewName>DETRAN-PROD</viewName>
+        <useJobFilter>false</useJobFilter>
+        <jobPattern>.*</jobPattern>
+      </jobGroupStrategy>
+      <description>PROD Queue</description>
+      <runExclusive>false</runExclusive>
+      <useJobFilter>false</useJobFilter>
+      <jobPattern>.*</jobPattern>
+      <usePriorityStrategies>false</usePriorityStrategies>
+      <priorityStrategies/>
+    </jenkins.advancedqueue.JobGroup>
+    <jenkins.advancedqueue.JobGroup>
+      <id>1</id>
+      <priority>2</priority>
+      <jobGroupStrategy class="jenkins.advancedqueue.jobinclusion.strategy.ViewBasedJobInclusionStrategy">
+        <viewName>DETRAN-HOM</viewName>
+        <useJobFilter>false</useJobFilter>
+        <jobPattern>.*</jobPattern>
+      </jobGroupStrategy>
+      <description>HOM Queue</description>
+      <runExclusive>false</runExclusive>
+      <useJobFilter>false</useJobFilter>
+      <jobPattern>.*</jobPattern>
+      <usePriorityStrategies>false</usePriorityStrategies>
+      <priorityStrategies/>
+    </jenkins.advancedqueue.JobGroup>
+    <jenkins.advancedqueue.JobGroup>
+      <id>2</id>
+      <priority>3</priority>
+      <jobGroupStrategy class="jenkins.advancedqueue.jobinclusion.strategy.ViewBasedJobInclusionStrategy">
+        <viewName>PoC</viewName>
+        <useJobFilter>false</useJobFilter>
+        <jobPattern>.*</jobPattern>
+      </jobGroupStrategy>
+      <description>POC Queue</description>
+      <runExclusive>false</runExclusive>
+      <useJobFilter>false</useJobFilter>
+      <jobPattern>.*</jobPattern>
+      <usePriorityStrategies>false</usePriorityStrategies>
+      <priorityStrategies/>
+    </jenkins.advancedqueue.JobGroup>
+  </jobGroups>
+</jenkins.advancedqueue.PriorityConfiguration>

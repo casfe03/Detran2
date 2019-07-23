@@ -1,0 +1,322 @@
+<?xml version='1.1' encoding='UTF-8'?>
+<flow-definition plugin="workflow-job@2.25">
+  <actions>
+    <org.jenkinsci.plugins.pipeline.modeldefinition.actions.DeclarativeJobAction plugin="pipeline-model-definition@1.3.2"/>
+    <org.jenkinsci.plugins.pipeline.modeldefinition.actions.DeclarativeJobPropertyTrackerAction plugin="pipeline-model-definition@1.3.2">
+      <jobProperties/>
+      <triggers/>
+      <parameters/>
+      <options/>
+    </org.jenkinsci.plugins.pipeline.modeldefinition.actions.DeclarativeJobPropertyTrackerAction>
+  </actions>
+  <description>SCC - Sistema de Gestão de Contratos e Convênios</description>
+  <keepDependencies>false</keepDependencies>
+  <properties>
+    <hudson.security.AuthorizationMatrixProperty>
+      <inheritanceStrategy class="org.jenkinsci.plugins.matrixauth.inheritance.InheritParentStrategy"/>
+      <permission>hudson.model.Item.Build:marcelo-hc</permission>
+      <permission>hudson.model.Item.Build:waltenes-ps</permission>
+      <permission>hudson.model.Item.Read:marcelo-hc</permission>
+      <permission>hudson.model.Item.Read:waltenes-ps</permission>
+    </hudson.security.AuthorizationMatrixProperty>
+    <org.jenkinsci.plugins.workflow.job.properties.DisableConcurrentBuildsJobProperty/>
+    <hudson.model.ParametersDefinitionProperty>
+      <parameterDefinitions>
+        <hudson.scm.listtagsparameter.ListSubversionTagsParameterDefinition plugin="subversion@2.12.1">
+          <name>Tag</name>
+          <description>Select a Subversion entry</description>
+          <tagsDir>https://svn.detran.goias.intra/svn/java/Escritório Processos Detran/Gestão de TI/scc/Tags</tagsDir>
+          <credentialsId>9838a34a-d7c8-4401-b4eb-f391afc45ad6</credentialsId>
+          <tagsFilter></tagsFilter>
+          <reverseByDate>true</reverseByDate>
+          <reverseByName>false</reverseByName>
+          <defaultValue></defaultValue>
+          <maxTags></maxTags>
+        </hudson.scm.listtagsparameter.ListSubversionTagsParameterDefinition>
+        <com.datalex.jdkparameter.JavaParameterDefinition plugin="JDK_Parameter_Plugin@1.0">
+          <name>Java</name>
+          <description></description>
+          <defaultJDK>JDK8</defaultJDK>
+          <allowedJDKs>
+            <string>JDK8</string>
+          </allowedJDKs>
+        </com.datalex.jdkparameter.JavaParameterDefinition>
+        <hudson.model.ChoiceParameterDefinition>
+          <name>Tipo</name>
+          <description></description>
+          <choices class="java.util.Arrays$ArrayList">
+            <a class="string-array">
+              <string>Normal</string>
+              <string>Fora do prazo</string>
+              <string>Emergencial</string>
+            </a>
+          </choices>
+        </hudson.model.ChoiceParameterDefinition>
+        <hudson.model.StringParameterDefinition>
+          <name>Issue</name>
+          <description>Informe os números(separados por vírgula) das tarefas relacionadas ao Deploy.</description>
+          <defaultValue></defaultValue>
+          <trim>false</trim>
+        </hudson.model.StringParameterDefinition>
+      </parameterDefinitions>
+    </hudson.model.ParametersDefinitionProperty>
+  </properties>
+  <definition class="org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition" plugin="workflow-cps@2.57">
+    <script>#!/usr/bin/env groovy
+class Constants {
+   // Somente esses logins podem aprovar a atividade do redmine e efetuar o deploy
+   static final LOGIN_APPROVERS = &apos;tecnisys,joao-lc,gustavo-jm,victor-fa,leandro-fsi&apos;;
+}
+    def getLatestApprover() {
+    def latest = null
+
+    // this returns a CopyOnWriteArrayList, safe for iteration
+    def acts = currentBuild.rawBuild.getAllActions()
+        for (act in acts) {
+        if (act instanceof org.jenkinsci.plugins.workflow.support.steps.input.ApproverAction) {
+            latest = act.userId
+            }
+        }
+        return latest
+    }
+node{
+    def tag_custom=&quot;&quot;
+      stage(&apos;Congela Tag&apos;){
+        script{
+            def verifica_tag=&quot;&quot;
+            verifica_tag = sh(returnStdout: true, script: &quot;svn list https://svn.detran.goias.intra/svn/java/Escrit%C3%B3rio%20Processos%20Detran/Gest%C3%A3o%20de%20TI/scc/Tags | grep ${Tag} | cut -d &apos;-&apos; -f2&quot;).trim()
+            if(verifica_tag == &apos;prod/&apos;){
+                currentBuild.result = &apos;SUCCESS&apos;
+                tag_custom = sh(returnStdout: true, script: &quot;echo ${Tag}&quot;).trim()
+            }
+
+            else{
+                sh(returnStdout: true, script:&quot;svn rename https://svn.detran.goias.intra/svn/java/Escrit%C3%B3rio%20Processos%20Detran/Gest%C3%A3o%20de%20TI/scc/Tags/${Tag} https://svn.detran.goias.intra/svn/java/Escrit%C3%B3rio%20Processos%20Detran/Gest%C3%A3o%20de%20TI/scc/Tags/${Tag}-prod -m &apos;Tag renomeada automaticamente pelo Jenkins&apos;&quot;)
+                tag_custom = sh(returnStdout: true, script: &quot;echo ${Tag}-prod&quot;).trim()
+                }
+            }
+        }
+    def usuarioinfo
+                script{
+                    wrap([$class: &apos;BuildUser&apos;]){
+                        usuarioinfo= sh (script: &quot;echo ${BUILD_USER_ID}&quot;, returnStdout:true).trim()
+                    }
+    stage(&apos;SCM&apos;){
+        print (&quot;JOB da TAG ${Tag} e do Projeto $JOB_NAME startado pelo Usuario:${usuarioinfo}&quot;)
+        checkout([
+            $class: &apos;SubversionSCM&apos;, 
+            additionalCredentials: [],
+            excludedCommitMessages: &apos;&apos;, 
+            excludedRegions: &apos;&apos;, 
+            excludedRevprop: &apos;&apos;, 
+            excludedUsers: &apos;&apos;, 
+            filterChangelog: false, 
+            ignoreDirPropChanges: false, 
+            includedRegions: &apos;&apos;, 
+            locations: [
+                [
+                    cancelProcessOnExternalsFail: true, 
+                    credentialsId: &apos;9838a34a-d7c8-4401-b4eb-f391afc45ad6&apos;, 
+                    depthOption: &apos;infinity&apos;, 
+                    ignoreExternalsOption: true, 
+                    local: &apos;.&apos;, 
+                    remote: &quot;https://svn.detran.goias.intra/svn/java/Escritório Processos Detran/Gestão de TI/scc/Tags/${tag_custom}/4%20-%20Implementa%C3%A7%C3%A3o/scc&quot;
+                ]
+            ], 
+            quietOperation: false,
+            workspaceUpdater: [$class: &apos;CheckoutUpdater&apos;]
+        ])
+    }
+                }
+    stage(&apos;QA&apos;) {
+        stage(&apos;QA-Compile&apos;) {
+            withMaven(maven: &apos;maven-3&apos;){
+                sh &apos;cd /var/lib/jenkins/workspace/SCC-PROD/detran-scc-web/src/main/webapp &amp;&amp; rm -rf node_modules/ &amp;&amp; npm install &amp;&amp; cd /var/lib/jenkins/workspace/SCC-PROD &amp;&amp; mvn clean package -Pprod -U&apos;
+            }
+        }
+        stage(&apos;QA-Analisys&apos;) {
+            withSonarQubeEnv(&apos;sonar-6&apos;){
+                withMaven(maven: &apos;maven-3&apos;){
+                    sh &apos;mvn -X -Duser.home=/opt/.jenkins -Pprod sonar:sonar&apos;
+                }
+            }
+        }
+        stage(&apos;QA-Quality Gate&apos;){
+            timeout (time: 2, unit: &apos;MINUTES&apos;) {
+                def qg = waitForQualityGate()          
+                if (qg.status != &apos;OK&apos;) {
+                    error &quot;Pipeline aborted due to quality gate failure: ${qg.status}&quot;
+                }
+            }
+        }
+    }
+    stage(&apos;Build&apos;){
+        withMaven(maven: &apos;maven-3&apos;){
+            sh &apos;mvn -X -Duser.home=/opt/.jenkins -Pprod package&apos;
+        }
+    }
+    def id_issue
+    def usuario
+    def submitter
+    def id_user_redmine2 = sh returnStdout: true, script: &quot;cat /var/lib/jenkins/redmine/users.txt |grep ${usuario} |cut -d\$&apos;\\t&apos; -f1&quot;
+        stage(&apos;Open a Approval Task in Redmine&apos;){
+                script{
+                    wrap([$class: &apos;BuildUser&apos;]){
+                        usuario = sh (script: &quot;echo ${BUILD_USER_ID}&quot;, returnStdout:true).trim()
+                    }
+                    id_issue = sh (returnStdout: true, script: &quot;curl -X POST  http://redmine.detran.goias.intra/issues.xml -H &apos;cache-control: no-cache&apos; -H &apos;content-type: application/xml&apos; -H &apos;x-redmine-api-key: eeb94e0a5d4faa1e06aa40d6c172e38291761663&apos; -d &apos;&lt;issue&gt;&lt;project_id&gt;56&lt;/project_id&gt;&lt;tracker_id&gt;127&lt;/tracker_id&gt;&lt;status_id&gt;1&lt;/status_id&gt;&lt;subject&gt;Deploy SCC do tipo ${Tipo} em Produção da Tag: ${Tag}&lt;/subject&gt;&lt;description&gt;Acesse a URL ${JOB_URL}${BUILD_NUMBER}/input para aprovar o novo deploy ${Tipo} &lt;/description&gt;&lt;assigned_to_id&gt;37&lt;/assigned_to_id&gt;&lt;/issue&gt;&apos; | grep -oPm1 \&quot;(?&lt;=&lt;id&gt;)[^.*&lt;]+\&quot; | tr -d &apos;\n&apos;&quot;)
+                    sh (returnStdout: true, script: &quot;curl -X PUT  http://redmine.detran.goias.intra/issues/${id_issue}.json -H &apos;cache-control: no-cache&apos; -H &apos;content-type: application/json&apos; -H &apos;x-redmine-api-key: eeb94e0a5d4faa1e06aa40d6c172e38291761663&apos; -d &apos;{\&quot;issue\&quot;: {\&quot;notes\&quot;: \&quot;O usuário ${usuario} solicitou o deploy desta TAG ${Tag} em produção\&quot;}}&apos;&quot;)
+                    sh (returnStdout:true, script:&quot;curl -X POST  http://redmine.detran.goias.intra/issues/${id_issue}/relations.xml -H &apos;cache-control: no-cache&apos; -H &apos;content-type: application/xml&apos; -H &apos;x-redmine-api-key: eeb94e0a5d4faa1e06aa40d6c172e38291761663&apos; -d&apos;&lt;relation&gt;&lt;issue_to_id&gt;${Issue}&lt;/issue_to_id&gt;&lt;relation_type&gt;relates&lt;/relation_type&gt;&lt;/relation&gt;&apos;&quot;)
+                }
+        }
+        stage(&apos;Redmine Deploy Approval&apos;){
+                timeout(time: 600, unit: &quot;MINUTES&quot;) {
+                    message: (&quot;Aguardando aprovação no REDMINE&quot;)
+                }            
+            script{
+                        try{
+                            // LOGIN_APPROVERS é uma constante definida apenas para estes usuarios aprovarem
+                            submitter   = input (message: &quot;Aprovar Deploy em Produção&quot;, ok: &quot;Aprovar?&quot;,submitter: Constants.&quot;LOGIN_APPROVERS&quot;)
+                            sh &quot;curl -X PUT http://redmine.detran.goias.intra/issues/${id_issue}.json -H &apos;cache-control: no-cache&apos; -H &apos;content-type: application/json&apos; -H &apos;x-redmine-api-key: eeb94e0a5d4faa1e06aa40d6c172e38291761663&apos; -d &apos;{\&quot;issue\&quot;: {\&quot;status_id\&quot;: 3, \&quot;notes\&quot;: \&quot;O usuário: ${submitter}, aprovou o deploy da TAG ${Tag}\&quot;}}&apos;&quot;
+                        } catch(Exception e){
+                            @NonCPS
+                            def userReject = e.getCauses()[0].getUser()
+                            echo &quot;Production deployment aborted by:\n ${userReject}&quot;
+                            if (e.getCauses().any { it instanceof org.jenkinsci.plugins.workflow.support.steps.input.Rejection}){
+                                    sh &quot;curl -X PUT http://redmine.detran.goias.intra/issues/${id_issue}.json -H &apos;cache-control: no-cache&apos; -H &apos;content-type: application/json&apos; -H &apos;x-redmine-api-key: eeb94e0a5d4faa1e06aa40d6c172e38291761663&apos; -d &apos;{\&quot;issue\&quot;: {\&quot;status_id\&quot;: 3, \&quot;notes\&quot;: \&quot;O usuário: ${userReject}, cancelou o deploy da TAG ${Tag}\&quot;}}&apos;&quot;
+                                    sh &quot;curl -X PUT http://redmine.detran.goias.intra/issues/${id_issue}.json -H &apos;cache-control: no-cache&apos; -H &apos;content-type: application/json&apos; -H &apos;x-redmine-api-key: eeb94e0a5d4faa1e06aa40d6c172e38291761663&apos; -d &apos;{\&quot;issue\&quot;: {\&quot;status_id\&quot;: 3,\&quot;assigned_to_id\&quot;:${id_user_redmine2} ,\&quot;notes\&quot;: \&quot;O Deploy desta TAG: ${Tag} não finalizado devido ao cancelamento do Deploy\&quot;}}&apos;&quot;
+                                }
+                                else{
+                                    sh &quot;curl -X PUT http://redmine.detran.goias.intra/issues/${id_issue}.json -H &apos;cache-control: no-cache&apos; -H &apos;content-type: application/json&apos; -H &apos;x-redmine-api-key: eeb94e0a5d4faa1e06aa40d6c172e38291761663&apos; -d &apos;{\&quot;issue\&quot;: {\&quot;status_id\&quot;: 3, \&quot;notes\&quot;: \&quot;O usuário: ${userReject}, cancelou o deploy da TAG ${Tag}\&quot;}}&quot;
+                                    sh &quot;curl -X PUT http://redmine.detran.goias.intra/issues/${id_issue}.json -H &apos;cache-control: no-cache&apos; -H &apos;content-type: application/json&apos; -H &apos;x-redmine-api-key: eeb94e0a5d4faa1e06aa40d6c172e38291761663&apos; -d &apos;{\&quot;issue\&quot;: {\&quot;status_id\&quot;: 3,\&quot;assigned_to_id\&quot;:${id_user_redmine2} ,\&quot;notes\&quot;: \&quot;O Deploy desta TAG: ${Tag} não finalizado devido ao cancelamento do Deploy\&quot;}}&apos;&quot;
+                                }
+                            currentBuild.result = &apos;ABORTED&apos;
+                            error(&apos;Aborted by redmine approval&apos;)
+                            }
+                        }
+                    }
+    stage(&apos;Deploy-copy&apos;){
+        withMaven(maven: &apos;maven-3&apos;){
+            sh &apos;cd /var/lib/jenkins/workspace/SCC-PROD/detran-scc-web/target &amp;&amp; cp detran-scc-web.war /var/lib/jenkins/workspace/SCC-PROD/target/ &amp;&amp; cd /var/lib/jenkins/workspace/SCC-PROD/detran-scc-ear/target &amp;&amp; cp detran-scc-ear.ear /var/lib/jenkins/workspace/SCC-PROD/target/&apos;
+        }
+    }
+    stage(&apos;Deploy DETRAN WAR&apos;){
+        withCredentials([usernamePassword(credentialsId: &apos;jboss-eap6&apos;, passwordVariable: &apos;PASSWORD&apos;, usernameVariable: &apos;USERNAME&apos;)]) {
+            def jbossCli=&quot;/opt/EAP-7.0.9/bin/jboss-cli.sh --connect --controller=10.110.30.95&quot;
+            def jbossStatus=&quot;&quot;
+            def jbossExists=&quot;&quot;
+            stage (&apos;Change-Log-For-Info DETRAN WEB&apos;){
+                jbossStatus=sh( returnStdout: true, script: &quot;$jbossCli --user=${USERNAME} --password=${PASSWORD} --command=&apos;/profile=full/subsystem=logging/root-logger=ROOT:change-root-log-level(level=INFO)&apos;&quot;)
+            }
+            stage (&apos;Deploy-Init WAR&apos;){
+                jbossStatus=sh( returnStdout: true, script: &quot;$jbossCli --user=${USERNAME} --password=${PASSWORD} --command=&apos;/server-group=Producao:read-resource&apos;&quot;)
+                jbossExists=jbossStatus.toLowerCase().contains(&quot;detran-scc-web.war&quot;)
+            }
+            if (jbossExists) {
+                stage(&apos;Deploy-Replace WAR&apos;){
+                    jbossStatus=sh( returnStdout: true, script: &quot;$jbossCli --user=${USERNAME} --password=${PASSWORD} --command=&apos;deploy target/detran-scc-web.war --force --headers={rollout Producao,Batch(rolling-to-servers=false)}&apos;&quot;)
+                    echo jbossStatus
+                }
+            } else {
+                stage(&apos;Deploy-New WAR&apos;){
+                        jbossStatus=sh( returnStdout: true, script: &quot;$jbossCli --user=${USERNAME} --password=${PASSWORD} --command=&apos;deploy target/detran-scc-web.war --server-groups=Producao,Batch --name=detran-scc-web.war&apos;&quot;)
+                        echo jbossStatus
+                }
+            }            
+    stage(&apos;Deploy DETRAN EAR&apos;){
+        stage (&apos;Change-Log-For-Info DETRAN BATCH&apos;){
+                jbossStatus=sh( returnStdout: true, script: &quot;$jbossCli --user=${USERNAME} --password=${PASSWORD} --command=&apos;/profile=full_batch/subsystem=logging/root-logger=ROOT:change-root-log-level(level=INFO)&apos;&quot;)
+            }
+        stage (&apos;Deploy-Init EAR&apos;){
+            jbossStatus=sh( returnStdout: true, script: &quot;$jbossCli --user=${USERNAME} --password=${PASSWORD} --command=&apos;/server-group=Producao:read-resource&apos;&quot;)
+            jbossExists=jbossStatus.toLowerCase().contains(&quot;detran-scc-ear.ear&quot;)
+            }
+            if (jbossExists) {
+                stage(&apos;Deploy-Replace EAR&apos;){
+                    jbossStatus=sh( returnStdout: true, script: &quot;$jbossCli --user=${USERNAME} --password=${PASSWORD} --command=&apos;deploy target/detran-scc-ear.ear --force --headers={rollout Producao,Batch(rolling-to-servers=false)}&apos;&quot;)
+                    echo jbossStatus
+                }
+            } else {
+                stage(&apos;Deploy-New EAR&apos;){
+                        jbossStatus=sh( returnStdout: true, script: &quot;$jbossCli --user=${USERNAME} --password=${PASSWORD} --command=&apos;deploy target/detran-scc-ear.ear --server-groups=Producao,Batch  --name=detran-scc-ear.ear&apos;&quot;)
+                        echo jbossStatus
+                }
+            }
+        stage(&apos;Change-Log-For-Error DETRAN WEB&apos;){
+                        jbossStatus=sh( returnStdout: true, script: &quot;$jbossCli --user=${USERNAME} --password=${PASSWORD} --command=&apos;/profile=full/subsystem=logging/root-logger=ROOT:change-root-log-level(level=ERROR)&apos;&quot;)
+            }
+        stage(&apos;Change-Log-For-Error DETRAN BATCH&apos;){
+                        jbossStatus=sh( returnStdout: true, script: &quot;$jbossCli --user=${USERNAME} --password=${PASSWORD} --command=&apos;/profile=full_batch/subsystem=logging/root-logger=ROOT:change-root-log-level(level=ERROR)&apos;&quot;)
+            }
+        }
+    }
+    stage(&apos;Deploy SEGPLAN WAR &apos;){
+        withCredentials([usernamePassword(credentialsId: &apos;jboss-eap6&apos;, passwordVariable: &apos;PASSWORD&apos;, usernameVariable: &apos;USERNAME&apos;)]) {
+            def jbossCli=&quot;/opt/EAP-7.0.9/bin/jboss-cli.sh --connect --controller=10.6.61.110&quot;
+            def jbossStatus=&quot;&quot;
+            def jbossExists=&quot;&quot;
+        stage (&apos;Change-Log-For-Info SEGPLAN WEB&apos;){
+                jbossStatus=sh( returnStdout: true, script: &quot;$jbossCli --user=${USERNAME} --password=${PASSWORD} --command=&apos;/profile=full/subsystem=logging/root-logger=ROOT:change-root-log-level(level=INFO)&apos;&quot;)
+            }
+        stage (&apos;Deploy-Init SEGPLAN&apos;){
+                jbossStatus=sh( returnStdout: true, script: &quot;$jbossCli --user=${USERNAME} --password=${PASSWORD} --command=&apos;/server-group=Producao:read-resource&apos;&quot;)
+                jbossExists=jbossStatus.toLowerCase().contains(&quot;detran-scc-web.war&quot;)
+            }
+            if (jbossExists) {
+                stage(&apos;Deploy-Replace&apos;){
+                    jbossStatus=sh( returnStdout: true, script: &quot;$jbossCli --user=${USERNAME} --password=${PASSWORD} --command=&apos;deploy target/detran-scc-web.war --force --headers={rollout Producao,Batch(rolling-to-servers=false)}&apos;&quot;)
+                    echo jbossStatus
+                }
+            } else {
+                stage(&apos;Deploy-New SEGPLAN&apos;){
+                        jbossStatus=sh( returnStdout: true, script: &quot;$jbossCli --user=${USERNAME} --password=${PASSWORD} --command=&apos;deploy target/detran-scc-web.war --server-groups=Producao,Batch --name=detran-scc-web.war&apos;&quot;)
+                        echo jbossStatus
+                }
+            }        
+    stage(&apos;Deploy SEGPLAN EAR&apos;){
+        stage (&apos;Change-Log-For-Info SEGPLAN BATCH&apos;){
+                jbossStatus=sh( returnStdout: true, script: &quot;$jbossCli --user=${USERNAME} --password=${PASSWORD} --command=&apos;/profile=full_batch/subsystem=logging/root-logger=ROOT:change-root-log-level(level=INFO)&apos;&quot;)
+            }
+        stage (&apos;Deploy-Init EAR SEGPLAN&apos;){
+            jbossStatus=sh( returnStdout: true, script: &quot;$jbossCli --user=${USERNAME} --password=${PASSWORD} --command=&apos;/server-group=Producao:read-resource&apos;&quot;)
+            jbossExists=jbossStatus.toLowerCase().contains(&quot;detran-scc-ear.ear&quot;)
+            }
+            if (jbossExists) {
+                stage(&apos;Deploy-Replace-EAR SEGPLAN&apos;){
+                    jbossStatus=sh( returnStdout: true, script: &quot;$jbossCli --user=${USERNAME} --password=${PASSWORD} --command=&apos;deploy target/detran-scc-ear.ear --force --headers={rollout Producao,Batch(rolling-to-servers=false)}&apos;&quot;)
+                    echo jbossStatus
+                }
+            } else {
+                stage(&apos;Deploy-New-EAR SEGPLAN&apos;){
+                        jbossStatus=sh( returnStdout: true, script: &quot;$jbossCli --user=${USERNAME} --password=${PASSWORD} --command=&apos;deploy target/detran-scc-ear.ear --server-groups=Producao,Batch --name=detran-scc-ear.ear&apos;&quot;)
+                        echo jbossStatus
+                }
+            }
+        stage(&apos;Change-Log-For-Error SEGPLAN WEB&apos;){
+                        jbossStatus=sh( returnStdout: true, script: &quot;$jbossCli --user=${USERNAME} --password=${PASSWORD} --command=&apos;/profile=full/subsystem=logging/root-logger=ROOT:change-root-log-level(level=ERROR)&apos;&quot;)
+            }
+        stage(&apos;Change-Log-For-Error SEGPLAN BATCH&apos;){
+                        jbossStatus=sh( returnStdout: true, script: &quot;$jbossCli --user=${USERNAME} --password=${PASSWORD} --command=&apos;/profile=full_batch/subsystem=logging/root-logger=ROOT:change-root-log-level(level=ERROR)&apos;&quot;)
+            }
+        }
+        
+        }
+    }
+}
+    stage(&apos;Closing Redmine Task&apos;){
+                script{
+                        def id_user_redmine = sh returnStdout: true, script: &quot;cat /var/lib/jenkins/redmine/users.txt |grep ${usuario} |cut -d\$&apos;\\t&apos; -f1&quot;
+                        if(submitter.equals(null)){
+                            sh returnStdout: true, script: &quot;curl -X PUT http://redmine.detran.goias.intra/issues/${id_issue}.json -H &apos;cache-control: no-cache&apos; -H &apos;content-type: application/json&apos; -H &apos;x-redmine-api-key: eeb94e0a5d4faa1e06aa40d6c172e38291761663&apos; -d &apos;{\&quot;issue\&quot;: {\&quot;status_id\&quot;: 3, \&quot;assigned_to_id\&quot;: ${id_user_redmine}}}&apos;&quot;    
+                        }
+                        else{
+                        sh returnStdout: true, script: &quot;curl -X PUT http://redmine.detran.goias.intra/issues/${id_issue}.json -H &apos;cache-control: no-cache&apos; -H &apos;content-type: application/json&apos; -H &apos;x-redmine-api-key: eeb94e0a5d4faa1e06aa40d6c172e38291761663&apos; -d &apos;{\&quot;issue\&quot;: {\&quot;status_id\&quot;: 3,\&quot;assigned_to_id\&quot;:${id_user_redmine} ,\&quot;notes\&quot;: \&quot;O Deploy desta TAG: ${Tag} foi finalizado com SUCESSO\&quot;}}&apos;&quot;     
+                        }
+                    }                
+            }
+    }</script>
+    <sandbox>false</sandbox>
+  </definition>
+  <triggers/>
+  <disabled>false</disabled>
+</flow-definition>

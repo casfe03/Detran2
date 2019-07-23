@@ -1,0 +1,144 @@
+<?xml version='1.1' encoding='UTF-8'?>
+<flow-definition plugin="workflow-job@2.25">
+  <actions>
+    <org.jenkinsci.plugins.pipeline.modeldefinition.actions.DeclarativeJobAction plugin="pipeline-model-definition@1.3.2"/>
+    <org.jenkinsci.plugins.pipeline.modeldefinition.actions.DeclarativeJobPropertyTrackerAction plugin="pipeline-model-definition@1.3.2">
+      <jobProperties/>
+      <triggers/>
+      <parameters/>
+      <options/>
+    </org.jenkinsci.plugins.pipeline.modeldefinition.actions.DeclarativeJobPropertyTrackerAction>
+  </actions>
+  <description></description>
+  <keepDependencies>false</keepDependencies>
+  <properties>
+    <hudson.security.AuthorizationMatrixProperty>
+      <inheritanceStrategy class="org.jenkinsci.plugins.matrixauth.inheritance.InheritParentStrategy"/>
+      <permission>hudson.model.Item.Build:ANDRE-LRL</permission>
+      <permission>hudson.model.Item.Build:andre-zg</permission>
+      <permission>hudson.model.Item.Build:daniel-gf</permission>
+      <permission>hudson.model.Item.Build:felipe-osb</permission>
+      <permission>hudson.model.Item.Build:gilson-ml</permission>
+      <permission>hudson.model.Item.Build:lucas-ol</permission>
+      <permission>hudson.model.Item.Build:pablo-hr</permission>
+      <permission>hudson.model.Item.Build:raquel-cc</permission>
+      <permission>hudson.model.Item.Build:wanderson-cs</permission>
+      <permission>hudson.model.Item.Read:ANDRE-LRL</permission>
+      <permission>hudson.model.Item.Read:andre-zg</permission>
+      <permission>hudson.model.Item.Read:daniel-gf</permission>
+      <permission>hudson.model.Item.Read:felipe-osb</permission>
+      <permission>hudson.model.Item.Read:gilson-ml</permission>
+      <permission>hudson.model.Item.Read:lucas-ol</permission>
+      <permission>hudson.model.Item.Read:pablo-hr</permission>
+      <permission>hudson.model.Item.Read:raquel-cc</permission>
+      <permission>hudson.model.Item.Read:wanderson-cs</permission>
+    </hudson.security.AuthorizationMatrixProperty>
+    <org.jenkinsci.plugins.workflow.job.properties.DisableConcurrentBuildsJobProperty/>
+    <hudson.model.ParametersDefinitionProperty>
+      <parameterDefinitions>
+        <hudson.scm.listtagsparameter.ListSubversionTagsParameterDefinition plugin="subversion@2.12.1">
+          <name>Tag</name>
+          <description>Select a Subversion entry</description>
+          <tagsDir>https://svn.detran.goias.intra/svn/java/Escritório Processos Detran/Gestão de TI/integracao-ars/Tags</tagsDir>
+          <credentialsId>9838a34a-d7c8-4401-b4eb-f391afc45ad6</credentialsId>
+          <tagsFilter></tagsFilter>
+          <reverseByDate>true</reverseByDate>
+          <reverseByName>false</reverseByName>
+          <defaultValue></defaultValue>
+          <maxTags></maxTags>
+        </hudson.scm.listtagsparameter.ListSubversionTagsParameterDefinition>
+        <com.datalex.jdkparameter.JavaParameterDefinition plugin="JDK_Parameter_Plugin@1.0">
+          <name>JAVA</name>
+          <description></description>
+          <defaultJDK>JDK7</defaultJDK>
+          <allowedJDKs>
+            <string>JDK7</string>
+          </allowedJDKs>
+        </com.datalex.jdkparameter.JavaParameterDefinition>
+      </parameterDefinitions>
+    </hudson.model.ParametersDefinitionProperty>
+  </properties>
+  <definition class="org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition" plugin="workflow-cps@2.57">
+    <script>node{
+  stage(&apos;SCM&apos;){
+      checkout([
+          $class: &apos;SubversionSCM&apos;, 
+          additionalCredentials: [],
+          excludedCommitMessages: &apos;&apos;, 
+          excludedRegions: &apos;&apos;, 
+          excludedRevprop: &apos;&apos;, 
+          excludedUsers: &apos;&apos;, 
+          filterChangelog: false, 
+          ignoreDirPropChanges: false, 
+          includedRegions: &apos;&apos;, 
+          locations: [
+              [
+                  cancelProcessOnExternalsFail: true, 
+                  credentialsId: &apos;9838a34a-d7c8-4401-b4eb-f391afc45ad6&apos;, 
+                  depthOption: &apos;infinity&apos;, 
+                  ignoreExternalsOption: true, 
+                  local: &apos;.&apos;, 
+                  remote: &apos;https://svn.detran.goias.intra/svn/java/Escritório Processos Detran/Gestão de TI/integracao-ars/Tags/${Tag}/4%20-%20Implementa%C3%A7%C3%A3o/integracao-ars&apos;
+              ]
+          ], 
+          quietOperation: true,
+          workspaceUpdater: [$class: &apos;CheckoutUpdater&apos;]
+      ])
+  }
+  stage(&apos;QA&apos;) {
+      stage(&apos;QA-Compile&apos;) {
+          withMaven(maven: &apos;maven-3&apos;){
+              sh &apos;mvn -X -Duser.home=/opt/.jenkins clean package -Phomolog -U&apos;
+          }
+      }
+      stage(&apos;QA-Analisys&apos;) {
+          withSonarQubeEnv(&apos;sonar-6&apos;){
+              withMaven(maven: &apos;maven-3&apos;){
+                  sh &apos;mvn -X -Duser.home=/opt/.jenkins -Phomolog sonar:sonar&apos;
+              }
+          }
+      }
+      stage(&apos;QA-Quality Gate&apos;){
+          timeout (time: 5, unit: &apos;MINUTES&apos;) {
+              def qg = waitForQualityGate()          
+              if (qg.status != &apos;OK&apos;) {
+                  error &quot;Pipeline aborted due to quality gate failure: ${qg.status}&quot;
+              }
+          }
+      }
+  }
+  
+  stage(&apos;Build&apos;){
+      withMaven(maven: &apos;maven-3&apos;){
+          sh &apos;mvn -X -Duser.home=/opt/.jenkins -Phomolog package&apos;
+      }
+  }  
+  stage(&apos;Deploy DETRAN&apos;){
+      withCredentials([usernamePassword(credentialsId: &apos;jboss-eap6&apos;, passwordVariable: &apos;PASSWORD&apos;, usernameVariable: &apos;USERNAME&apos;)]) {
+          def jbossCli=&quot;/opt/jboss-6.4.21/bin/jboss-cli.sh --connect --controller=10.110.30.70&quot;
+          def jbossStatus=&quot;&quot;
+          def jbossExists=&quot;&quot;
+          stage (&apos;Deploy-Init&apos;){
+              jbossStatus=sh( returnStdout: true, script: &quot;$jbossCli --user=${USERNAME} --password=${PASSWORD} --command=&apos;/server-group=Homolog-Batch:read-resource&apos;&quot;)
+              jbossExists=jbossStatus.contains(&quot;integracao-Ars.war&quot;)
+          }
+          if (jbossExists) {
+              stage(&apos;Deploy-Replace&apos;){
+                  jbossStatus=sh( returnStdout: true, script: &quot;$jbossCli --user=${USERNAME} --password=${PASSWORD} --command=&apos;deploy target/integracao-Ars.war --force --headers={rollout Homolog-Batch(rolling-to-servers=false)}&apos;&quot;)
+                  echo jbossStatus
+              }
+          } else {
+              stage(&apos;Deploy-New&apos;){
+                      jbossStatus=sh( returnStdout: true, script: &quot;$jbossCli --user=${USERNAME} --password=${PASSWORD} --command=&apos;deploy target/integracao-Ars.war --server-groups=Homolog-Batch  --name=integracao-Ars.war&apos;&quot;)
+                      echo jbossStatus
+              }
+          }
+      }
+  }
+
+}</script>
+    <sandbox>false</sandbox>
+  </definition>
+  <triggers/>
+  <disabled>false</disabled>
+</flow-definition>
