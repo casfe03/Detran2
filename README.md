@@ -1,1 +1,1 @@
-Projeto de CI/CD do detran de Goias, backup de todos os pipelines que criei.
+Projeto de CI/CD do Jenkins utilizando fluxos de SVN(Pode ser adaptado ao GIT), Compilação em MAVEN e Angular, checagem de qualidade de cõdigo através do SONARQUBE e por fim deploy automatizado no seu JBOSS, pode utilzar o pipeline como exemplo, deu trampo, por isso tou compartilhando!
